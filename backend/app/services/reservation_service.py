@@ -170,3 +170,19 @@ def list_reservations(db: Session, user: User, *, status_: str | None, resource_
     only_mine = mine or not is_reviewer(user)
     return repo.search(db, user_id=user.id if only_mine else None, status=status_,
                        resource_id=resource_id, skip=skip, limit=limit)
+
+
+
+# reservation  approval integration
+## complete code/exact change
+# add near the other import:
+from app.services.scheduling_service import check_reservation_against_schedules
+# inside existing approve(), affter locking/validating the resource
+# and BEFORE reservation.status = "approved":
+check_reservation_against_schedules(
+    db,
+    resource_id=reservation.resource_id,
+    Reservation_start=reservation.start_time,
+    Reservation_end=reservation.end_time,
+)
+# keep the existing reviewer fields, commit , and return logic
