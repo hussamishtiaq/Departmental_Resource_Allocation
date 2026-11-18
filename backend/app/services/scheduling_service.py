@@ -1,83 +1,46 @@
-from datetime import date
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy.orm import Session
-
-from app.core.permissions import Permission
-from app.dependencies.auth import require_permission
-from app.dependencies.database import get_db
-from app.models.user import User
-from app.schemas.class_schedule import (
-    ClassScheduleCreate, ClassScheduleRead, ClassScheduleUpdate
-)
-from app.services import scheduling_service as svc
-
-router = APIRouter(prefix="/schedules", tags=["class schedules"])
-read_permission = require_permission(Permission.RESOURCES_READ)
-manage_permission = require_permission(Permission.SCHEDULES_MANAGE)
-
-
-@router.get("", response_model=list[ClassScheduleRead])
-def list_schedules(
-    resource_id: int | None = Query(default=None, gt=0),
-    faculty_id: int | None = Query(default=None, gt=0),
-    day_of_week: int | None = Query(default=None, ge=0, le=6),
-    start_date: date | None = None,
-    end_date: date | None = None,
-    active_only: bool = True,
-    skip: int = Query(default=0, ge=0),
-    limit: int = Query(default=100, ge=1, le=500),
-    db: Session = Depends(get_db),
-    _: User = Depends(read_permission),
-):
-    if start_date and end_date and end_date < start_date:
-        raise HTTPException(422, "end_date cannot be before start_date")
-    return svc.list_schedules(
-        db,
-        resource_id=resource_id,
-        faculty_id=faculty_id,
-        day_of_week=day_of_week,
-        start_date=start_date,
-        end_date=end_date,
-        active_only=active_only,
-        skip=skip,
-        limit=limit,
+def test_create_valid_schedule(client, admin_headers, room, faculty):
+    response = client.post(
+        "/api/v1/schedules",
+        headers=admin_headers,
+        json={
+            "resource_id": room.id,
+            "faculty_id": faculty.id,
+            "course_name": "Database Systems",
+            "class_name": "BSSE Semester 4 Section A",
+            "day_of_week": 0,
+            "start_time": "09:00:00",
+            "end_time": "10:30:00",
+            "start_date": "2026-11-16",
+            "end_date": "2027-02-15",
+        },
     )
+    assert response.status_code == 201
 
 
-@router.get("/{schedule_id}", response_model=ClassScheduleRead)
-def get_schedule(
-    schedule_id: int,
-    db: Session = Depends(get_db),
-    _: User = Depends(read_permission),
-):
-    return svc.get_schedule(db, schedule_id)
+def test_reject_invalid_time(client, admin_headers, room, faculty):
+    response = client.post(
+        "/api/v1/schedules",
+        headers=admin_headers,
+        json={
+            "resource_id": room.id,
+            "faculty_id": faculty.id,
+            "course_name": "Database Systems",
+            "class_name": "BSSE Semester 4 Section A",
+            "day_of_week": 0,
+            "start_time": "11:00:00",
+            "end_time": "09:00:00",
+            "start_date": "2026-11-16",
+            "end_date": "2027-02-15",
+        },
+    )
+    assert response.status_code == 422
 
 
-@router.post("", response_model=ClassScheduleRead,
-             status_code=status.HTTP_201_CREATED)
-def create_schedule(
-    data: ClassScheduleCreate,
-    db: Session = Depends(get_db),
-    actor: User = Depends(manage_permission),
-):
-    return svc.create_schedule(db, actor, data)
-
-
-@router.patch("/{schedule_id}", response_model=ClassScheduleRead)
-def update_schedule(
-    schedule_id: int,
-    data: ClassScheduleUpdate,
-    db: Session = Depends(get_db),
-    actor: User = Depends(manage_permission),
-):
-    return svc.update_schedule(db, actor, schedule_id, data)
-
-
-@router.delete("/{schedule_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_schedule(
-    schedule_id: int,
-    db: Session = Depends(get_db),
-    _: User = Depends(manage_permission),
-):
-    svc.cancel_schedule(db, schedule_id)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+# Add tests for:
+# - same room overlap -> 409
+# - same faculty overlap -> 409
+# - adjacent slots -> both accepted
+# - unavailable or non-room resource -> rejected
+# - approved reservation conflict in both directions -> rejected
+# - update conflict, cancellation, and authorization -> 403
+       
